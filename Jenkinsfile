@@ -4,7 +4,8 @@ pipeline {
 
     environment {
         IMAGE_NAME = "jenkins-docker-compose-assessment-app"
-        COMPOSE_FILE = "docker-compose.yml"
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        PREVIOUS_TAG_FILE = ".previous_image_tag"
     }
 
     stages {
@@ -37,6 +38,8 @@ pipeline {
             steps {
                 sh '''
                     docker compose build
+                    docker tag docker-compose-cicd-app:latest \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -44,7 +47,7 @@ pipeline {
         stage('Trivy Security Scan') {
             steps {
                 sh '''
-                    trivy image ${IMAGE_NAME}:latest
+                    trivy image ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -52,7 +55,25 @@ pipeline {
         stage('Generate Trivy Report') {
             steps {
                 sh '''
-                    trivy image ${IMAGE_NAME}:latest > trivy-report.txt
+                    trivy image ${IMAGE_NAME}:${IMAGE_TAG} > trivy-report.txt
+                '''
+            }
+        }
+
+        stage('Save Previous Version') {
+            steps {
+                sh '''
+                    CURRENT_IMAGE=$(docker ps \
+                        --filter "name=docker-compose-cicd-app" \
+                        --format "{{.Image}}" | head -n 1 || true)
+
+                    if [ -n "$CURRENT_IMAGE" ]; then
+                        echo "$CURRENT_IMAGE" > ${PREVIOUS_TAG_FILE}
+                    else
+                        echo "NONE" > ${PREVIOUS_TAG_FILE}
+                    fi
+
+                    cat ${PREVIOUS_TAG_FILE}
                 '''
             }
         }
@@ -60,7 +81,8 @@ pipeline {
         stage('Deploy') {
             steps {
                 sh '''
-                    docker compose up -d
+                    IMAGE_NAME=${IMAGE_NAME} IMAGE_TAG=${IMAGE_TAG} \
+                    docker compose up -d --force-recreate
                 '''
             }
         }
@@ -69,6 +91,7 @@ pipeline {
             steps {
                 sh '''
                     sleep 15
+
                     docker compose ps
 
                     curl --fail http://localhost:3000/health
@@ -89,15 +112,15 @@ pipeline {
 
         always {
             archiveArtifacts artifacts: 'trivy-report.txt',
-                         allowEmptyArchive: true
+                             allowEmptyArchive: true
+        }
+
+        failure {
+            echo 'Deployment failed. Rollback should be performed using the previous image version.'
         }
 
         success {
             echo 'CI/CD pipeline completed successfully.'
-        }
-
-        failure {
-            echo 'CI/CD pipeline failed. Check the stage logs.'
         }
     }
 }

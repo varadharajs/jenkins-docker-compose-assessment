@@ -1,6 +1,8 @@
 services:
 
   app:
+    image: ${IMAGE_NAME:-jenkins-docker-compose-assessment-app}:${IMAGE_TAG:-latest}   
+
     build:
       context: .
       dockerfile: Dockerfile
