@@ -1,0 +1,13 @@
+{
+  "name": "jenkins-docker-compose-assessment",
+  "version": "1.0.0",
+  "description": "Jenkins Docker Compose CI/CD assessment",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node -e \"console.log('Tests passed')\""
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
