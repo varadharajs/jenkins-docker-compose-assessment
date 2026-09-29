@@ -5,7 +5,6 @@ services:
       context: .
       dockerfile: Dockerfile
 
-    container_name: cicd-docker-app1
 
     ports:
       - "3000:3000"
@@ -34,7 +33,6 @@ services:
   db:
     image: postgres:16-alpine
 
-    container_name: cicd-docker-dpapp1
 
     environment:
       POSTGRES_DB: assessment
