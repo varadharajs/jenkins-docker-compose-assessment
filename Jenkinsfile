@@ -5,7 +5,7 @@ pipeline {
     environment {
         IMAGE_NAME = "jenkins-docker-compose-assessment-app"
         IMAGE_TAG = "${BUILD_NUMBER}"
-        PREVIOUS_TAG_FILE = ".previous_image_tag"
+        PREVIOUS_IMAGE_FILE = ".previous_image"
     }
 
     stages {
@@ -34,12 +34,29 @@ pipeline {
             }
         }
 
+        stage('Save Previous Version') {
+            steps {
+                sh '''
+                    PREVIOUS_IMAGE=$(docker inspect \
+                        --format='{{.Config.Image}}' \
+                        jenkins-docker-compose-assessment-app-1 2>/dev/null || true)
+
+                    if [ -n "$PREVIOUS_IMAGE" ]; then
+                        echo "$PREVIOUS_IMAGE" > ${PREVIOUS_IMAGE_FILE}
+                        echo "Previous image: $PREVIOUS_IMAGE"
+                    else
+                        echo "NONE" > ${PREVIOUS_IMAGE_FILE}
+                        echo "No previous application container found."
+                    fi
+                '''
+            }
+        }
+
         stage('Docker Build') {
             steps {
                 sh '''
+                    IMAGE_NAME=${IMAGE_NAME} IMAGE_TAG=${IMAGE_TAG} \
                     docker compose build
-                    docker tag docker-compose-cicd-app:latest \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -55,25 +72,8 @@ pipeline {
         stage('Generate Trivy Report') {
             steps {
                 sh '''
-                    trivy image ${IMAGE_NAME}:${IMAGE_TAG} > trivy-report.txt
-                '''
-            }
-        }
-
-        stage('Save Previous Version') {
-            steps {
-                sh '''
-                    CURRENT_IMAGE=$(docker ps \
-                        --filter "name=docker-compose-cicd-app" \
-                        --format "{{.Image}}" | head -n 1 || true)
-
-                    if [ -n "$CURRENT_IMAGE" ]; then
-                        echo "$CURRENT_IMAGE" > ${PREVIOUS_TAG_FILE}
-                    else
-                        echo "NONE" > ${PREVIOUS_TAG_FILE}
-                    fi
-
-                    cat ${PREVIOUS_TAG_FILE}
+                    trivy image ${IMAGE_NAME}:${IMAGE_TAG} \
+                    > trivy-report.txt
                 '''
             }
         }
@@ -90,11 +90,19 @@ pipeline {
         stage('Health Check') {
             steps {
                 sh '''
+                    echo "Waiting for application..."
+
                     sleep 15
 
                     docker compose ps
 
-                    curl --fail http://localhost:3000/health
+                    echo "Checking application health..."
+
+                    curl --fail --retry 5 --retry-delay 3 \
+                        http://localhost:3000/health
+
+                    echo ""
+                    echo "Application health check passed."
                 '''
             }
         }
@@ -116,11 +124,43 @@ pipeline {
         }
 
         failure {
-            echo 'Deployment failed. Rollback should be performed using the previous image version.'
+            echo "Pipeline failed."
+
+            script {
+                def previousImage = sh(
+                    script: "cat ${PREVIOUS_IMAGE_FILE} 2>/dev/null || echo NONE",
+                    returnStdout: true
+                ).trim()
+
+                if (previousImage && previousImage != "NONE") {
+
+                    echo "Rolling back to: ${previousImage}"
+
+                    sh """
+                        docker compose down
+
+                        docker tag ${previousImage} \
+                            ${IMAGE_NAME}:rollback
+
+                        IMAGE_NAME=${IMAGE_NAME} IMAGE_TAG=rollback \
+                        docker compose up -d
+
+                        sleep 15
+
+                        curl --fail \
+                            http://localhost:3000/health
+                    """
+
+                    echo "Rollback completed successfully."
+
+                } else {
+                    echo "No previous image available for rollback."
+                }
+            }
         }
 
         success {
-            echo 'CI/CD pipeline completed successfully.'
+            echo "CI/CD pipeline completed successfully."
         }
     }
 }

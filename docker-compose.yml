@@ -1,12 +1,11 @@
 services:
 
   app:
-    image: ${IMAGE_NAME:-jenkins-docker-compose-assessment-app}:${IMAGE_TAG:-latest}   
+    image: ${IMAGE_NAME:-jenkins-docker-compose-assessment-app}:${IMAGE_TAG:-latest}
 
     build:
       context: .
       dockerfile: Dockerfile
-
 
     ports:
       - "3000:3000"
@@ -34,7 +33,6 @@ services:
 
   db:
     image: postgres:16-alpine
-
 
     environment:
       POSTGRES_DB: assessment
